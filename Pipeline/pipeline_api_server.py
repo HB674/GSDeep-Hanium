@@ -82,9 +82,9 @@ VOICE_PROFILES: Dict[str, Tuple[str, str]] = {
 # TTS 경로에서만 사용하는: voice_profile -> 고정 pitch 매핑
 VOICE_PROFILE_TO_PITCH = {
     # 형님이 원하시는 값으로 자유롭게 수정하세요
-    "female_young": 8,
-    "male_adult":   -2,
-    "male_young":   6,
+    "female_young": 15,
+    "male_adult":   -4,
+    "male_young":   0,
     # 필요 시 추가...
 }
 
@@ -227,7 +227,7 @@ class AudioJobRequest(BaseModel):
 class TTSJobRequest(BaseModel):
     # 1) TTS 입력: text를 생략하면 OpenAITTS가 input_text/의 최신 파일을 자동 사용
     tts_text: Optional[str] = Field(None, description="합성할 텍스트(SSML 허용). 비우면 input_text 최신 파일 사용")
-    voice: Optional[str] = Field("nova", description="OpenAITTS 보이스")
+    voice: Optional[str] = Field("onyx", description="OpenAITTS 보이스")
     response_format: Optional[str] = Field("mp3", description='"mp3" | "wav"')
     output_basename: Optional[str] = Field(None, description="출력 파일명(확장자 제외)")
     auto_ssml_wrap: Optional[bool] = Field(True, description="True면 <speak> 자동 래핑")
@@ -471,7 +471,7 @@ async def create_tts_audio_job(req: TTSJobRequest):
 
     # 1) OpenAITTS 호출 준비
     form = {
-        "voice": (req.voice or "nova"),
+        "voice": (req.voice or "onyx"),
         "response_format": (req.response_format or "mp3"),
         "auto_ssml_wrap": "true" if (req.auto_ssml_wrap is None or req.auto_ssml_wrap) else "false",
     }
@@ -518,7 +518,7 @@ async def create_tts_audio_job(req: TTSJobRequest):
     job = _new_job_state(audio_req)
     job.params["tts_mapped_pitch"] = mapped_pitch
     job.params["tts"] = {
-        "voice": req.voice or "nova",
+        "voice": req.voice or "onyx",
         "response_format": req.response_format or "mp3",
         "auto_ssml_wrap": bool(req.auto_ssml_wrap if req.auto_ssml_wrap is not None else True),
         "text_source": text_source,  # "inline" | "latest_file"
