@@ -105,7 +105,7 @@ def warmup():
         text = "<speak>테스트.</speak>"
         _ = client.audio.speech.create(
             model="tts-1-hd",
-            voice="nova",
+            voice="onyx",
             input=text,
             response_format="mp3",
         )
