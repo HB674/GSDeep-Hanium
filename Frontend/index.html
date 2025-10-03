@@ -99,7 +99,7 @@
       <h3 class="headline scroll-animated-from-bottom">Upload Image</h3>
       <div class="row justify-content-center">
         <div class="col-lg-8 col-md-10 col-sm-12">
-          <form id="service-upload" class="upload-panel scroll-animated-from-bottom" action="/api/upload" method="POST" enctype="multipart/form-data">
+          <form id="service-upload" class="upload-panel scroll-animated-from-bottom" action="/api/upload" method="POST" enctype="multipart/form-data" novalidate>
             <div id="drop-zone" class="upload-drop" tabindex="0" aria-label="파일 업로드 영역">
               <input type="file" id="file-input" name="file" class="upload-input" aria-label="파일 선택" />
               <div class="upload-prompt">
@@ -123,7 +123,7 @@
                 <!-- 20%: WAV 업로드 (작은 드롭존) -->
                 <div class="meta-audio">
                   <div id="audio-drop" class="mini-drop" tabindex="0" aria-label="mp3/wav 파일 업로드">
-                    <input type="file" id="audio-input" name="audio" accept=".wav,audio/wav,.mp3,audio/mpeg"  class="mini-input" aria-label="WAV/MP3 파일 선택" required>
+                    <input type="file" id="audio-input" name="audio" accept=".wav,audio/wav,.mp3,audio/mpeg"  class="mini-input" aria-label="WAV/MP3 파일 선택">
                     <div class="mini-prompt">
                       <i class="fa fa-microphone" aria-hidden="true"></i>
                       <p class="m-0"><strong>음성파일 업로드</strong></p>
