@@ -30,7 +30,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://gs-deep-hanium.vercel.app/",
+        "https://gs-deep-hanium.vercel.app",
         "http://localhost:5500",
         "http://127.0.0.1:5500",
         "http://0.0.0.0:5500",
@@ -47,7 +47,8 @@ app.add_middleware(
 SHARED_DIR = Path(os.getenv("SHARED_DIR", "/app/shared_data_workspace"))
 INPUT_AUDIO_DIR = SHARED_DIR / "input_audio"
 INPUT_IMAGE_DIR = SHARED_DIR / "input_image"
-for d in [INPUT_AUDIO_DIR, INPUT_IMAGE_DIR]:
+INPUT_TEXT_DIR  = SHARED_DIR / "input_text"  
+for d in [INPUT_AUDIO_DIR, INPUT_IMAGE_DIR, INPUT_TEXT_DIR]: 
     d.mkdir(parents=True, exist_ok=True)
 
 # 각 서비스의 엔드포인트
@@ -56,11 +57,14 @@ SERVICE_URLS: Dict[str, str] = {
     "sadtalker": "http://sadtalker_api:8002/health",
     "wav2lip":   "http://wav2lip_api:8003/health",
     "gfpgan":    "http://gfpgan_api:8004/health",
+    "openaitts": "http://openaitts_api:8005/health",
 }
 APPLIO_INFER_URL    = "http://applio_api:8001/infer"
 SADTALKER_INFER_URL = "http://sadtalker_api:8002/infer"
 W2L_INFER_URL       = "http://wav2lip_api:8003/infer"
 GFPGAN_ENH_URL      = "http://gfpgan_api:8004/enhance_video"
+OPENAITTS_SYN_URL    = "http://openaitts_api:8005/synthesize"
+
 
 # -------------------------------------------------
 # 음성 프로필 매핑 (예시)
@@ -73,6 +77,15 @@ VOICE_PROFILES: Dict[str, Tuple[str, str]] = {
     "male_adult": ("/app/voice_model/swain/swain.pth", "/app/voice_model/swain/swain.index"),
     "female_young": ("/app/voice_model/irelia/irelia.pth", "/app/voice_model/irelia/irelia.index"),
     # 필요 시 더 추가
+}
+
+# TTS 경로에서만 사용하는: voice_profile -> 고정 pitch 매핑
+VOICE_PROFILE_TO_PITCH = {
+    # 형님이 원하시는 값으로 자유롭게 수정하세요
+    "female_young": 8,
+    "male_adult":   -2,
+    "male_young":   6,
+    # 필요 시 추가...
 }
 
 def resolve_profile_paths(profile: Optional[str]) -> Tuple[Optional[Path], Optional[Path]]:
@@ -198,7 +211,7 @@ async def warmup():
 class AudioJobRequest(BaseModel):
     # 경로 모드
     audio_path: str = Field(..., description="SHARED_DIR 내부의 입력 오디오 경로 (예: input_audio/foo.mp3)")
-    image_path: str = Field(..., description="SHARED_DIR 내부의 입력 이미지 경로 (예: input_image/face.jpg)")
+    image_path: Optional[str] = Field(None, description="없으면 input_image 최신 사용")
 
     # Applio 제어 (나머지 단계는 기본값)
     use_applio: bool = True
@@ -208,6 +221,24 @@ class AudioJobRequest(BaseModel):
     voice_profile: Optional[str] = None
 
     # (B) 직접 경로 지정(voice_profile이 있으면 무시하거나, 없을 때만 사용)
+    pth_path: Optional[str] = None
+    index_path: Optional[str] = None
+
+class TTSJobRequest(BaseModel):
+    # 1) TTS 입력: text를 생략하면 OpenAITTS가 input_text/의 최신 파일을 자동 사용
+    tts_text: Optional[str] = Field(None, description="합성할 텍스트(SSML 허용). 비우면 input_text 최신 파일 사용")
+    voice: Optional[str] = Field("nova", description="OpenAITTS 보이스")
+    response_format: Optional[str] = Field("mp3", description='"mp3" | "wav"')
+    output_basename: Optional[str] = Field(None, description="출력 파일명(확장자 제외)")
+    auto_ssml_wrap: Optional[bool] = Field(True, description="True면 <speak> 자동 래핑")
+
+    # 2) 영상 입력
+    image_path: Optional[str] = Field(None, description="없으면 input_image 최신 사용")
+
+    # 3) Applio 제어 (기존과 동일)
+    use_applio: bool = True
+    pitch: Optional[float] = None
+    voice_profile: Optional[str] = None
     pth_path: Optional[str] = None
     index_path: Optional[str] = None
 
@@ -261,8 +292,14 @@ async def _run_audio_job(job: JobState):
 
     # 입력 경로
     audio_in = _as_shared_path(job.params["audio_path"])
-    image_in = _as_shared_path(job.params["image_path"])
-
+    img_param = job.params.get("image_path")
+    if img_param:
+        image_in = _as_shared_path(img_param)
+    else:
+        latest_img = _pick_latest(INPUT_IMAGE_DIR, ["*.png","*.jpg","*.jpeg","*.webp"])
+        if not latest_img:
+            return _update_job(job, status="failed", step="prepare", error="no image under input_image/")
+        image_in = latest_img
     if not audio_in.exists():
         return _update_job(job, status="failed", step="prepare", error=f"audio not found: {audio_in}")
     if not image_in.exists():
@@ -297,7 +334,7 @@ async def _run_audio_job(job: JobState):
             try:
                 # 1) Applio (선택)
                 if job.params.get("use_applio", True):
-                    form = { "input_audio_path": str(audio_48k) }
+                    form = { "input_wav_path": str(audio_48k) }
                     if job.params.get("pitch") is not None:
                         form["pitch"] = str(job.params["pitch"])
                     if pth_path and index_path:
@@ -412,6 +449,90 @@ async def _run_audio_job(job: JobState):
 # -------------------------------------------------
 # 엔드포인트: 잡 생성/조회
 # -------------------------------------------------
+from typing import Iterable
+
+def _pick_latest_image() -> Optional[Path]:
+    return _pick_latest(INPUT_IMAGE_DIR, ["*.png","*.jpg","*.jpeg","*.webp"])
+
+@app.post("/jobs/tts")
+async def create_tts_audio_job(req: TTSJobRequest):
+    # 0) 이미지 확보: 주어지면 검증, 없으면 최신 자동
+    if req.image_path and req.image_path.strip():
+        image_in = _as_shared_path(req.image_path)
+        if not image_in.exists():
+            raise HTTPException(status_code=404, detail=f"image not found: {image_in}")
+        image_auto = False
+    else:
+        latest_img = _pick_latest_image()
+        if not latest_img:
+            raise HTTPException(status_code=404, detail="no image found under input_image/")
+        image_in = latest_img
+        image_auto = True
+
+    # 1) OpenAITTS 호출 준비
+    form = {
+        "voice": (req.voice or "nova"),
+        "response_format": (req.response_format or "mp3"),
+        "auto_ssml_wrap": "true" if (req.auto_ssml_wrap is None or req.auto_ssml_wrap) else "false",
+    }
+    text_source = "inline"
+    if req.tts_text is not None and req.tts_text.strip():
+        form["text"] = req.tts_text
+    else:
+        text_source = "latest_file"
+    if req.output_basename:
+        form["output_basename"] = req.output_basename
+
+    # 2) 합성 실행 + 시간 측정
+    async with httpx.AsyncClient(timeout=None) as client:
+        t0 = time.perf_counter()
+        r = await client.post(OPENAITTS_SYN_URL, data=form)
+        ms = int((time.perf_counter() - t0) * 1000)
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"openaitts http_{r.status_code}: {r.text[:300]}")
+        jr = r.json()
+        rel = jr.get("relative")
+        out = jr.get("output")
+        if not rel and out:
+            try:
+                rel = str(Path(out).resolve().relative_to(SHARED_DIR.resolve()))
+            except Exception:
+                rel = out
+        if not rel:
+            raise HTTPException(status_code=500, detail=f"openaitts response missing path: {jr}")
+
+    mapped_pitch = VOICE_PROFILE_TO_PITCH.get(req.voice_profile, 0)
+
+    # 3) 기존 /jobs/audio와 동일한 요청으로 변환
+    audio_req = AudioJobRequest(
+        audio_path=rel,
+        image_path=str(image_in.resolve().relative_to(SHARED_DIR.resolve())),
+        use_applio=req.use_applio,
+        pitch=mapped_pitch,
+        voice_profile=req.voice_profile,
+        pth_path=req.pth_path,
+        index_path=req.index_path,
+    )
+
+    # 4) 잡 생성 + TTS 메타/타이밍/아티팩트 선기록
+    job = _new_job_state(audio_req)
+    job.params["tts_mapped_pitch"] = mapped_pitch
+    job.params["tts"] = {
+        "voice": req.voice or "nova",
+        "response_format": req.response_format or "mp3",
+        "auto_ssml_wrap": bool(req.auto_ssml_wrap if req.auto_ssml_wrap is not None else True),
+        "text_source": text_source,  # "inline" | "latest_file"
+        "output_basename": req.output_basename,
+    }
+    job.params["image_auto_selected"] = image_auto
+    job.artifacts["tts_audio"] = rel                 # 상대경로
+    job.artifacts["tts_audio_abs"] = out or None     # 절대경로(있으면)
+    job.timings["openaitts"] = ms
+
+    JOBS[job.job_id] = job
+    asyncio.create_task(_run_audio_job(job))
+    return {"job_id": job.job_id, "status": job.status}
+
 @app.post("/jobs/audio")
 async def create_audio_job(req: AudioJobRequest):
     """
@@ -506,6 +627,23 @@ def _save_upload_to(dirpath: Path, up: UploadFile, prefix: str = "") -> Path:
             f.write(chunk)
     return dst
 
+def _save_text_to(dirpath: Path, content: str, basename: Optional[str] = None) -> Path:
+    """
+    텍스트 내용을 UTF-8 .txt 파일로 저장.
+    - basename이 있으면 그 이름(확장자 제외)을 기반으로 저장
+    - 없으면 timestamp로 파일명 생성
+    """
+    dirpath.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    if basename:
+        stem = _safe_filename(Path(basename).stem)
+        fname = f"{stem}_{ts}.txt"
+    else:
+        fname = f"text_{ts}.txt"
+    dst = dirpath / fname
+    dst.write_text(content, encoding="utf-8", errors="ignore")
+    return dst
+
 def _ensure_under_shared_any(p: Path) -> Path:
     """
     절대/상대 경로를 모두 받아 SHARED_DIR 하위의 실제 파일로 확정.
@@ -531,6 +669,8 @@ def _file_response(p: Path) -> FileResponse:
     elif ext in (".png",):       media = "image/png"
     elif ext in (".jpg", ".jpeg"): media = "image/jpeg"
     elif ext in (".wav",):       media = "audio/wav"
+    elif ext in (".mp3",):       media = "audio/mpeg"
+
     return FileResponse(
         path=str(p),
         media_type=media,
@@ -580,6 +720,44 @@ async def api_upload(
         "ok": True,
         "image_path": image_rel,   # 예: "input_image/You_20250922_190012_123456.png"
         "audio_path": audio_rel,   # 예: "input_audio/011_20250922_190012_123456.wav" (없으면 null)
+        "message": message
+    })
+
+# ==== 1-b) 업로드 엔드포인트(이미지 + 텍스트) ====
+@app.post("/api/upload_with_text")
+async def api_upload_with_text(
+    file: UploadFile = File(..., description="소스 이미지 (jpg/png 등)"),
+    text: str = Form(..., description="합성에 사용할 텍스트(SSML 허용 가능, 일반 문장도 OK)"),
+    text_basename: Optional[str] = Form(None, description="텍스트 파일명(확장자 제외). 없으면 자동"),
+    message: Optional[str] = Form(None),
+):
+    """
+    - 이미지는 SHARED_DIR/input_image/ 에 저장
+    - 텍스트는 SHARED_DIR/input_text/ 에 .txt로 저장
+    - 저장된 상대경로를 반환 (OpenAITTS는 input_text/의 최신을 자동 사용 가능)
+    """
+    # 1) 이미지 저장
+    try:
+        img_path = _save_upload_to(INPUT_IMAGE_DIR, file, prefix="")
+    finally:
+        try:
+            file.file.close()
+        except Exception:
+            pass
+
+    # 2) 텍스트 저장
+    if not (text or "").strip():
+        raise HTTPException(status_code=400, detail="text is empty")
+    txt_path = _save_text_to(INPUT_TEXT_DIR, text, basename=text_basename)
+
+    # 3) 상대경로로 반환
+    image_rel = str(img_path.relative_to(SHARED_DIR))
+    text_rel  = str(txt_path.relative_to(SHARED_DIR))
+
+    return JSONResponse({
+        "ok": True,
+        "image_path": image_rel,  # 예: "input_image/face_20251003_....png"
+        "text_path": text_rel,    # 예: "input_text/prompt_20251003_....txt"
         "message": message
     })
 
