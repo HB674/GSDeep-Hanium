@@ -83,25 +83,28 @@ jQuery(document).ready(function($) {
   // ------------------------------------------
   // === Service Upload UI (UPLOAD→JOB→POLL) ===
   // ------------------------------------------
-  const $form    = $('#service-upload');
+  const $form     = $('#service-upload');
   if(!$form.length) return;
 
-  const $dropImg = $('#drop-zone');          // 이미지 드롭존
-  const $imgInput= $('#file-input');         // 이미지 input
-  const $preview = $('#upload-preview');
-  const $prompt  = $dropImg.find('.upload-prompt');
-  const $status  = $('#upload-status');
-  const $message = $('#upload-message');
+  const $dropImg  = $('#drop-zone');          // 이미지 드롭존
+  const $imgInput = $('#file-input');         // 이미지 input
+  const $preview  = $('#upload-preview');
+  const $prompt   = $dropImg.find('.upload-prompt');
+  const $status   = $('#upload-status');
+  const $message  = $('#upload-message');
 
   // 오디오/보이스 옵션
-  const $audioInput = $('#audio-input');     // <input type="file" accept="audio/wav" required>
-  const $audioDrop  = $('#audio-drop');      // 오디오 드롭존
+  const $audioInput = $('#audio-input');      // <input type="file" accept="audio/wav">
+  const $audioDrop  = $('#audio-drop');       // 오디오 드롭존
   const $audioName  = $('#audio-filename');
   const $audioPrev  = $('#audio-preview');
 
-  const $selGender  = $('#voice-gender');    // male|female
-  const $selAge     = $('#voice-age');       // young|middle|old
-  const $rangePitch = $('#voice-level');     // -20 ~ 20
+  const $selGender  = $('#voice-gender');     // male|female
+  const $selAge     = $('#voice-age');        // young|middle|old
+  const $rangePitch = $('#voice-level');      // -20 ~ 20
+
+  // ★ 텍스트 입력(추가)
+  const $textInput  = $('#text-input');       // <textarea id="text-input"></textarea>
 
   let selectedImage = null;  // 이미지 파일
   let selectedAudio = null;  // 오디오 파일 (DnD/클릭 공용)
@@ -111,7 +114,7 @@ jQuery(document).ready(function($) {
     $preview.hide().attr('src','');
     $prompt.show();
 
-    // ★ 추가: 결과 비디오도 숨기고 src 제거
+    // 결과 비디오도 숨김
     var $vid = $('#result-video');
     if ($vid.length) $vid.hide().attr('src','');
   }
@@ -150,7 +153,6 @@ jQuery(document).ready(function($) {
     const dt = e.originalEvent.dataTransfer;
     if(dt && dt.files && dt.files.length){
       selectedImage = dt.files[0];
-      // input.files 동기화 (가능한 브라우저에서)
       try{
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(selectedImage);
@@ -179,7 +181,6 @@ jQuery(document).ready(function($) {
         const f = files[0];
         if (f.type === 'audio/wav' || /\.wav$/i.test(f.name)) {
           selectedAudio = f;
-          // input.files 동기화 (required 통과용)
           try {
             const dt = new DataTransfer();
             dt.items.add(f);
@@ -207,7 +208,7 @@ jQuery(document).ready(function($) {
   function getVoiceProfile(){
     const gender = ($selGender && $selGender.val()) || 'female'; // male|female
     let   age    = ($selAge && $selAge.val())       || 'young';  // young|middle|old
-    if (age === 'middle' || age === 'old') age = 'adult';        // 서버 프로필과 매핑
+    if (age === 'middle' || age === 'old') age = 'adult';
     return `${gender}_${age}`; // 예: female_young, male_adult
   }
   function getPitch(){
@@ -216,8 +217,16 @@ jQuery(document).ready(function($) {
     return Number.isFinite(n) ? n : 0;
   }
 
+  // ---------- 모드 판단 ----------
+  // 규칙: 이미지 + 텍스트 + 오디오(세 개 모두) → "텍스트 모드(TTS)" 우선
+  //       텍스트가 하나라도 있으면 TTS, 아니면 오디오
+  function getMode(){
+    const t = ($textInput && $textInput.val()) ? $textInput.val().trim() : '';
+    return t.length > 0 ? 'tts' : 'audio';
+  }
+
   // ---------- API 유틸 ----------
-  async function uploadToServer(imgFile, msg, audioFile){
+  async function uploadImageAndAudio(imgFile, msg, audioFile){
     const fd = new FormData();
     fd.append('file', imgFile, imgFile.name || 'upload.png');
     if (audioFile) fd.append('audio', audioFile, audioFile.name || 'voice.wav');
@@ -235,17 +244,35 @@ jQuery(document).ready(function($) {
     return json; // { ok, image_path, audio_path|null, message }
   }
 
-  async function createJob(image_path, audio_path){
-    if (!audio_path) throw new Error('오디오가 업로드되지 않았습니다(audio_path 없음). WAV를 선택하세요.');
+  // 이미지 + 텍스트 업로드(신규)
+  async function uploadImageAndText(imgFile, text, textBasename, msg){
+    const fd = new FormData();
+    fd.append('file', imgFile, imgFile.name || 'upload.png');
+    fd.append('text', text);
+    if (textBasename) fd.append('text_basename', textBasename);
+    if (msg) fd.append('message', msg);
 
+    const res = await fetch(`${BASE}/api/upload_with_text`, { method:'POST', body: fd });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(`/api/upload_with_text 실패: ${res.status} ${t.slice(0,200)}`);
+    }
+    const json = await res.json();
+    if(!json || !json.image_path || !json.text_path){
+      throw new Error('업로드 응답에 image_path 또는 text_path가 없습니다.');
+    }
+    return json; // { ok, image_path, text_path, message }
+  }
+
+  async function createAudioJob(image_path, audio_path){
+    if (!audio_path) throw new Error('오디오가 업로드되지 않았습니다(audio_path 없음). WAV를 선택하세요.');
     const body = {
       image_path,
-      audio_path,              // 백엔드 필수
+      audio_path,
       use_applio: true,
       pitch: getPitch(),
       voice_profile: getVoiceProfile()
     };
-
     const res = await fetch(`${BASE}/jobs/audio`, {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
@@ -254,6 +281,29 @@ jQuery(document).ready(function($) {
     if(!res.ok){
       const t = await res.text();
       throw new Error(`/jobs/audio 실패: ${res.status} ${t.slice(0,200)}`);
+    }
+    return res.json(); // { job_id, status }
+  }
+
+  // 텍스트(TTS) 파이프라인 잡 생성(신규)
+  async function createTTSJob(image_path){
+    const body = {
+      image_path,
+      voice: 'nova',                // 필요 시 UI에서 선택 가능하게 확장
+      response_format: 'mp3',
+      use_applio: true,
+      pitch: getPitch(),
+      voice_profile: getVoiceProfile()
+      // tts_text는 보내지 않습니다 → 서버가 input_text 최신 파일을 사용
+    };
+    const res = await fetch(`${BASE}/jobs/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(`/jobs/tts 실패: ${res.status} ${t.slice(0,200)}`);
     }
     return res.json(); // { job_id, status }
   }
@@ -298,34 +348,59 @@ jQuery(document).ready(function($) {
       return;
     }
 
-    // 오디오 필수
-    const audioFile = selectedAudio
-      || ($audioInput && $audioInput[0] && $audioInput[0].files && $audioInput[0].files[0])
-      ? (selectedAudio || $audioInput[0].files[0])
-      : null;
-    if (!audioFile) {
-      $status.text('WAV 오디오 파일을 선택하세요.');
-      return;
+    const textVal = ($textInput && $textInput.val()) ? $textInput.val().trim() : '';
+
+    // 규칙:
+    // - 텍스트가 존재하면 => 텍스트 모드(TTS)로 진행 (오디오가 있어도 무시)
+    // - 텍스트가 없으면  => 오디오 모드(기존)로 진행
+    const mode = textVal.length > 0 ? 'tts' : 'audio';
+
+    // 오디오 모드일 때만 오디오 필수 체크
+    let audioFile = null;
+    if (mode === 'audio') {
+      audioFile = selectedAudio
+        || ($audioInput && $audioInput[0] && $audioInput[0].files && $audioInput[0].files[0])
+        ? (selectedAudio || $audioInput[0].files[0])
+        : null;
+      if (!audioFile) {
+        $status.text('WAV 오디오 파일을 선택하세요.');
+        return;
+      }
     }
 
     try{
       setBusy(true);
       $status.text('업로드 중...');
 
-      // 1) 업로드 → 경로 획득
-      const up = await uploadToServer(selectedImage, $message.val(), audioFile);
-
-      if (!up.audio_path) {
-        $status.text('오디오 업로드 실패: audio_path가 없습니다. WAV 파일을 다시 선택해 주세요.');
-        return;
+      // 1) 업로드 → 경로 획득 (모드별)
+      let up = null;
+      if (mode === 'tts') {
+        // 이미지 + 텍스트 업로드 (오디오가 있어도 무시)
+        up = await uploadImageAndText(selectedImage, textVal, /*textBasename*/ null, $message.val());
+      } else {
+        // 기존: 이미지 + 오디오
+        up = await uploadImageAndAudio(selectedImage, $message.val(), audioFile);
+        if (!up.audio_path) {
+          $status.text('오디오 업로드 실패: audio_path가 없습니다. WAV 파일을 다시 선택해 주세요.');
+          return;
+        }
       }
 
       // 2) 잡 생성
       $status.text('잡 생성 중...');
-      const job = await createJob(up.image_path, up.audio_path);
+
+      let job;
+      if (mode === 'tts') {
+        job = await createTTSJob(up.image_path);
+      } else {
+        job = await createAudioJob(up.image_path, up.audio_path);
+      }
 
       // 3) 폴링
-      $status.text('처리 중입니다... (applio → sadtalker → wav2lip → gfpgan)');
+      $status.text(mode === 'tts'
+        ? '처리 중입니다... (tts → applio → sadtalker → wav2lip → gfpgan)'
+        : '처리 중입니다... (applio → sadtalker → wav2lip → gfpgan)'
+      );
       const result = await pollJob(job.job_id, step => $status.text(`진행 중: ${step}...`));
 
       // 4) 결과 재생
@@ -371,6 +446,7 @@ jQuery(document).ready(function($) {
   resetImgPreview();
 });
 
+// 결과 비디오 재생
 function playResult(url){
   var $vid    = $('#result-video');
   var $img    = $('#upload-preview');
@@ -384,11 +460,9 @@ function playResult(url){
     // 비디오 보여주고 로드
     $vid.attr('src', url).show()[0].load();
 
-    // 사용자가 바로 보도록 서비스 섹션으로 스크롤(선택)
     var service = document.getElementById('service');
     if (service) service.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
-    // 비상: 결과 자리 없으면 새 탭으로라도
     window.open(url, '_blank', 'noopener');
   }
 }
