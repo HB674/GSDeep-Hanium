@@ -47,7 +47,7 @@ services:
 
   sadtalker_api_server:
     build:
-      context: ./Sadtalker
+      context: ./SadTalker
       dockerfile: Dockerfile.sadtalker
     container_name: sadtalker_api
     ports:
@@ -68,7 +68,7 @@ services:
 
   wav2lip_api_server:
     build:
-      context: ./Wav2lip
+      context: ./Wav2Lip
       dockerfile: Dockerfile.wav2lip
     container_name: wav2lip_api
     ports:
@@ -88,7 +88,7 @@ services:
 
   gfpgan_api_server:
     build:
-      context: ./Gfpgan
+      context: ./GFPGAN
       dockerfile: Dockerfile.gfpgan
     container_name: gfpgan_api
     ports:
