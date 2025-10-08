@@ -1,12 +1,16 @@
 [submodule "Applio"]
 	path = Applio
 	url = https://github.com/HB674/Applio.git
+	branch = main
 [submodule "SadTalker"]
 	path = SadTalker
 	url = https://github.com/HB674/SadTalker.git
+	branch = main
 [submodule "Wav2Lip"]
 	path = Wav2Lip
 	url = https://github.com/HB674/Wav2Lip.git
+	branch = master
 [submodule "GFPGAN"]
 	path = GFPGAN
 	url = https://github.com/HB674/GFPGAN.git
+	branch = master
