@@ -27,7 +27,6 @@ RUN python -m pip install --upgrade pip && \
       httpx \
       tenacity
 
-
 COPY . /app
 
 EXPOSE 8000
