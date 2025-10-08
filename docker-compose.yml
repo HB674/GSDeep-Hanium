@@ -56,8 +56,8 @@ services:
       - SHARED_DIR=/app/shared_data_workspace
     volumes:
       - ./shared_data_workspace:/app/shared_data_workspace:rw
-      - ./Sadtalker/checkpoints:/app/checkpoints:ro
-      - ./Sadtalker/gfpgan:/app/gfpgan:ro   # (옵션) GFPGAN 모델
+      - ./SadTalker/checkpoints:/app/checkpoints:ro
+      - ./SadTalker/gfpgan:/app/gfpgan:ro   # (옵션) GFPGAN 모델
     gpus: all
     restart: unless-stopped
     healthcheck:
@@ -77,7 +77,7 @@ services:
       - SHARED_DIR=/app/shared_data_workspace
     volumes:
       - ./shared_data_workspace:/app/shared_data_workspace:rw
-      - ./Wav2lip/checkpoints:/app/checkpoints:ro
+      - ./Wav2Lip/checkpoints:/app/checkpoints:ro
     gpus: all
     restart: unless-stopped
     healthcheck:
