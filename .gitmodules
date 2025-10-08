@@ -9,8 +9,8 @@
 [submodule "Wav2Lip"]
 	path = Wav2Lip
 	url = https://github.com/HB674/Wav2Lip.git
-	branch = master
+	branch = main
 [submodule "GFPGAN"]
 	path = GFPGAN
 	url = https://github.com/HB674/GFPGAN.git
-	branch = master
+	branch = main
