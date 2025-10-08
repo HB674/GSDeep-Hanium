@@ -82,8 +82,8 @@ VOICE_PROFILES: Dict[str, Tuple[str, str]] = {
 # TTS 경로에서만 사용하는: voice_profile -> 고정 pitch 매핑
 VOICE_PROFILE_TO_PITCH = {
     # 형님이 원하시는 값으로 자유롭게 수정하세요
-    "female_young": 15,
-    "male_adult":   -4,
+    "female_young": 3,
+    "male_adult":   3,
     "male_young":   0,
     # 필요 시 추가...
 }
@@ -404,8 +404,14 @@ async def _run_audio_job(job: JobState):
                 _update_job(job, step="gfpgan", artifacts=job.artifacts, timings=job.timings)
 
                 # 4) GFPGAN
-                t = time.perf_counter()                                      # ★ gfpgan 시작
-                g_form = {"input_video_path": str(w2l_out)}
+                t = time.perf_counter()
+                g_form = {
+                    "input_video_path": str(w2l_out),
+                    # 핵심: 오디오는 wav2lip 결과가 아니라 applio(or 48k 변환본)를 쓰게 한다
+                    "original_audio_path": str(audio_for_video),
+                    # WAV를 mp4에 'copy'로 못 넣으므로 재인코딩 강제 (AAC)
+                    "audio_copy": "false",
+                }
                 r = await client.post(GFPGAN_ENH_URL, data=g_form)
                 job.timings["gfpgan"] = int((time.perf_counter() - t) * 1000)     # ★ 기록
                 if r.status_code != 200:
@@ -454,6 +460,18 @@ from typing import Iterable
 def _pick_latest_image() -> Optional[Path]:
     return _pick_latest(INPUT_IMAGE_DIR, ["*.png","*.jpg","*.jpeg","*.webp"])
 
+# ▼ 추가: voice_profile → TTS 보이스 매핑 (남성: onyx, 여성: nova)
+def _tts_voice_from_profile(vp: Optional[str], fallback: str = "onyx") -> str:
+    if not vp:
+        return fallback
+    v = vp.lower()
+    if v.startswith("female"):
+        return "nova"
+    if v.startswith("male"):
+        return "onyx"
+    return fallback
+
+
 @app.post("/jobs/tts")
 async def create_tts_audio_job(req: TTSJobRequest):
     # 0) 이미지 확보: 주어지면 검증, 없으면 최신 자동
@@ -468,10 +486,16 @@ async def create_tts_audio_job(req: TTSJobRequest):
             raise HTTPException(status_code=404, detail="no image found under input_image/")
         image_in = latest_img
         image_auto = True
+    
+    # chosen_voice = req.voice or _tts_voice_from_profile(req.voice_profile, fallback="onyx")
+    if req.voice_profile:
+        chosen_voice = _tts_voice_from_profile(req.voice_profile, fallback="onyx")
+    else:
+        chosen_voice = req.voice or "onyx"
 
     # 1) OpenAITTS 호출 준비
     form = {
-        "voice": (req.voice or "onyx"),
+        "voice": chosen_voice,
         "response_format": (req.response_format or "mp3"),
         "auto_ssml_wrap": "true" if (req.auto_ssml_wrap is None or req.auto_ssml_wrap) else "false",
     }
@@ -518,7 +542,7 @@ async def create_tts_audio_job(req: TTSJobRequest):
     job = _new_job_state(audio_req)
     job.params["tts_mapped_pitch"] = mapped_pitch
     job.params["tts"] = {
-        "voice": req.voice or "onyx",
+        "voice": chosen_voice,
         "response_format": req.response_format or "mp3",
         "auto_ssml_wrap": bool(req.auto_ssml_wrap if req.auto_ssml_wrap is not None else True),
         "text_source": text_source,  # "inline" | "latest_file"
