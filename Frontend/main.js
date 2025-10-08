@@ -487,6 +487,7 @@ function openVideoLightbox({ src, poster = '', title = '', subline = '' }) {
   `;
 
   if (window.jQuery && window.jQuery.featherlight) {
+    // Featherlight 사용 시: afterClose 훅에서 리셋
     window.jQuery.featherlight(content, {
       persist: false,
       closeOnEsc: true,
@@ -495,10 +496,13 @@ function openVideoLightbox({ src, poster = '', title = '', subline = '' }) {
         const v = this.$content.find('video').get(0);
         if (v) v.play().catch(()=>{});
         if (v) v.focus({ preventScroll: true });
+      },
+      afterClose() {
+        if (typeof window.resetUploadUI === 'function') window.resetUploadUI();
       }
     });
   } else {
-    // Featherlight 미사용 시 간단 대체
+    // 간이 오버레이 버전: 닫을 때 리셋
     const overlay = document.createElement('div');
     overlay.className = 'featherlight featherlight-open';
     overlay.innerHTML = `
@@ -509,8 +513,15 @@ function openVideoLightbox({ src, poster = '', title = '', subline = '' }) {
     `;
     Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.7)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center' });
     document.body.appendChild(overlay);
-    overlay.querySelector('.featherlight-close-icon').onclick = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    const doClose = () => {
+      overlay.remove();
+      if (typeof window.resetUploadUI === 'function') window.resetUploadUI();
+    };
+
+    overlay.querySelector('.featherlight-close-icon').onclick = doClose;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) doClose(); });
+
     const v = overlay.querySelector('video');
     if (v) v.play().catch(()=>{});
   }
@@ -531,3 +542,47 @@ function playResult(url, opts = {}){
   });
 }
 
+
+// 업로드 패널을 초기 상태로 되돌리는 전역 함수
+window.resetUploadUI = function resetUploadUI() {
+  try {
+    const $form     = $('#service-upload');
+    const $dropImg  = $('#drop-zone');
+    const $prompt   = $dropImg.find('.upload-prompt');
+    const $preview  = $('#upload-preview');
+    const $status   = $('#upload-status');
+    const $imgInput = $('#file-input');
+    const $audioInp = $('#audio-input');
+    const $audioNm  = $('#audio-filename');
+    const $audioPrev= $('#audio-preview');
+
+    // 파일 input 정리
+    if ($imgInput && $imgInput.length)  $imgInput.val('');
+    if ($audioInp && $audioInp.length)  $audioInp.val('');
+
+    // 프리뷰/로딩 표시 정리
+    if ($preview && $preview.length) { 
+      $preview.hide().attr('src',''); 
+      $preview.css({ objectFit: '' });
+    }
+    if ($prompt && $prompt.length)  $prompt.show();
+    if ($dropImg && $dropImg.length) $dropImg.removeClass('is-loading dragover');
+
+    // 상태문구/오디오 프리뷰 정리
+    if ($status && $status.length) $status.text('');
+    if ($audioNm && $audioNm.length) $audioNm.text('');
+    if ($audioPrev && $audioPrev.length) { 
+      $audioPrev.hide(); 
+      $audioPrev[0].src = ''; 
+    }
+
+    // 내부 변수도 깔끔히 (선언된 경우에만)
+    if (window.selectedImage !== undefined) window.selectedImage = null;
+    if (window.selectedAudio !== undefined) window.selectedAudio = null;
+
+    // 버튼 등 비활성화 해제(혹시 남아 있으면)
+    if ($form && $form.length) $form.find('button, input, select, textarea').prop('disabled', false);
+  } catch (e) {
+    console.warn('resetUploadUI 실패:', e);
+  }
+};
