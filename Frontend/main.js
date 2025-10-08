@@ -311,7 +311,7 @@ jQuery(document).ready(function($) {
   async function createTTSJob(image_path){
     const body = {
       image_path,
-      voice: 'onyx',
+      // voice: 'onyx',
       response_format: 'mp3',
       use_applio: true,
       pitch: getPitch(),
