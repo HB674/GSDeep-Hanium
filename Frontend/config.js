@@ -1,3 +1,3 @@
 // Frontend/config.js
-window.API_BASE = "http://localhost:8000";
+window.API_BASE = "https://football-cancelled-recommendations-regulated.trycloudflare.com";
 
