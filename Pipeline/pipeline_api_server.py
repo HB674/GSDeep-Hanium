@@ -73,19 +73,24 @@ OPENAITTS_SYN_URL    = "http://openaitts_api:8005/synthesize"
 # -------------------------------------------------
 VOICE_PROFILES: Dict[str, Tuple[str, str]] = {
     # "profile_key": ("voice_model/xxx/model.pth", "voice_model/xxx/model.index")
-    "male_young": ("/app/voice_model/male_young/model.pth", "/app/voice_model/male_young/model.index"),
+    "male_young": ("/app/voice_model/sett/sett.pth", "/app/voice_model/sett/sett.index"),
     "male_adult": ("/app/voice_model/swain/swain.pth", "/app/voice_model/swain/swain.index"),
+    "male_old": ("/app/voice_model/torbjorn/trobjorn.pth", "/app/voice_model/torbjorn/torbjorn.index"),
     "female_young": ("/app/voice_model/irelia/irelia.pth", "/app/voice_model/irelia/irelia.index"),
-    # 필요 시 더 추가
+    "female_adult": ("/app/voice_model/symmetra/symmetra.pth", "/app/voice_model/symmetra/symmetra.index"),
+    "female_old": ("/app/voice_model/ana/ana.pth", "/app/voice_model/ana/ana.index"),
 }
 
 # TTS 경로에서만 사용하는: voice_profile -> 고정 pitch 매핑
 VOICE_PROFILE_TO_PITCH = {
-    # 형님이 원하시는 값으로 자유롭게 수정하세요
+
+    "male_young":   5,    
+    "male_adult":   0,
+    "male_old":   7,
     "female_young": 3,
-    "male_adult":   3,
-    "male_young":   0,
-    # 필요 시 추가...
+    "female_adult": 0,
+    "female_old": -3,
+    
 }
 
 def resolve_profile_paths(profile: Optional[str]) -> Tuple[Optional[Path], Optional[Path]]:
