@@ -1,3 +1,3 @@
 // Frontend/config.js
-window.API_BASE = "https://football-cancelled-recommendations-regulated.trycloudflare.com";
+window.API_BASE = "https://speech-cloudy-tell-hydrogen.trycloudflare.com";
 
